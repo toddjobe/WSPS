@@ -1,0 +1,25 @@
+videoRecorderInstall.txt
+Windows Only
+Author: Todd Jobe
+Date: 11/27/2012
+
+This repository file contains all the necessary components for the walnut street presentation suite
+
+To Install
+copy the contents of the ffmpeg-20120409-git-6bfb304-win64-static 64 or 32 bit to C:\Program Files\FFMPEG
+run UScreenCapture (x64).msi" or 32 bit as an administrator
+Copy WSPS.ppam to %USERDIR%\AppData\Roaming\Microsoft\AddIns
+Open powerpoint.
+File -> Options -> Add-Ins -> Manage: Powerpoint Add-ins -> Go...
+New -> WSPS.ppam
+Follow the instructions on the dialog boxes.
+
+To Uninstall
+Open powerpoint.
+File -> Options -> Add-Ins -> Manage: Powerpoint Add-ins -> Go...
+Remove -> WSPS.ppam
+
+To reset the parameters
+Regedit as administrator
+delete
+HKEY_CURRENT_USER\Software\VB and VBA Program Settings\WSPS
