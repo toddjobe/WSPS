@@ -1,0 +1,9 @@
+installMac.txt
+Author: Todd Jobe
+Date: 12-01-2012
+
+You need to install 
+Install the latest version of XCode (or minimally Command Line Tools) from developer.apple.com
+ruby -e "$(curl -fsSkL raw.github.com/mxcl/homebrew/go)"
+brew install git
+brew install ffmpeg --with-libvo-aacenc
