@@ -7,16 +7,18 @@
 # if the stream is not present.  So, if there's no video stream
 # it just won't create a video file
 
-videoStream=udp://localhost:1234
+streamPort=1234
+streamHost=192.168.50.164
+streamUser=toddjobe
 audioDevice=default
 #localFolderBase="/AudioFiles"
-localFolderBase="/Users/toddjobe/Documents/AudioFiles"
-remoteFolder="/Users/toddjobe/Documents/AudioFiles/remote"
+localFolderBase="${HOME}/Documents/AudioFiles"
+remoteFolder="${HOME}/Documents/AudioFiles/remote"
 itsoffset=0
-#user=terry
-user=toddjobe
-#host=peopleforjesus.org
-host=localhost
+#webUser=terry
+webUser=toddjobe
+#webHost=peopleforjesus.org
+webHost=localhost
 
 # Parse command line options
 while getopts "y" opt; do
@@ -31,6 +33,21 @@ while getopts "y" opt; do
 done
 
 dt=`date +%Y-%m-%d`
+
+# Get the local ip address
+os=`uname`
+localIP=""
+case $os in
+  Linux) localIP=`ifconfig | grep 'inet addr:' | grep -v '127.0.0.1' | cut -d: -f2 | awk '{print $1}'`;;
+  Darwin|FreeBSD|OpenBSD) localIP=`ifconfig | grep -E 'inet.[0-9]' | grep -v '127.0.0.1' | awk '{ print $2}'` ;;
+esac
+
+# Choose the right audio driver
+audioDriver=""
+case $os in
+  Linux|FreeBSD|OpenBSD) audioDriver=alsa ;;
+  Darwin) audioDriver=coreaudio ;;
+esac
 
 # Parse the file suffix
 case `date +%u` in
@@ -69,7 +86,7 @@ remoteVideoFile="${remoteFolder}/${videoFile}"
 remoteAudioFile="${remoteFolder}/${audioFile}"
 
 # Check for existence of files and ask if you want to overwrite
-if [ -e ${localVideoFile} ] || [ -e ${localAudioFile} ] || [ -z `ssh ${user}@${host} "ls ${remoteVideoFile} ${remoteAudioFile} 2>/dev/null"` ]; then
+if [[ ( ! ${forceOverwrite} ) && ( -e ${localVideoFile} || -e ${localAudioFile} || -z `ssh ${webUser}@${webHost} "ls ${remoteVideoFile} ${remoteAudioFile} 2>/dev/null"` ) ]]; then
   read -p 'One or more of the files already exist, do you want to overwrite?(y/N):' a
   if [[ $a == [Nn] || $a == "" ]]; then
     echo Exiting.
@@ -84,6 +101,7 @@ function cleanup() {
   [[ ! -z "$ffmpeg_video_pid" ]] && kill -9 "${ffmpeg_video_pid}"
   [[ ! -z "$ffmpeg_audio_pid" ]] && kill -9 "${ffmpeg_audio_pid}"
   [[ ! -z "$sox_pid" ]] && kill -9 "${sox_pid}"
+  [[ ! -z "$stream_pid" ]] && kill -9 "${stream_pid}"
 }
 
 trap "cleanup" EXIT INT
@@ -103,6 +121,7 @@ for fifo in "${audioFifo}" "${ffmpegAudioFifo}" "${ffmpegVideoFifo}" "${audioLoc
 done
 
 # log errors to separate places
+streamLog=/tmp/stream.log
 audioLog=/tmp/audio.log
 ffmpegAudioLog=/tmp/ffmpegAudio.log
 ffmpegVideoLog=/tmp/ffmpegVideo.log
@@ -111,18 +130,22 @@ videoLocalLog=/tmp/videoLocal.log
 audioRemoteLog=/tmp/audioRemote.log
 videoRemoteLog=/tmp/videoRemote.log
 
+# video streaming command
+ssh ${streamUser}@${streamHost} "cmd /c \"C:\\Program Files\\ffmpeg\\bin\\ffmpeg.exe\" -y -f dshow -t 3600 -i video=UScreenCapture -vcodec libx264 -vprofile high -preset slow -b:v 50k -maxrate 500k -bufsize 0k -vf scale=426:320 -pix_fmt yuv420p -metadata comment=trial -f mpegts udp://${localIP}:${streamPort}" 2>&1 >${streamLog} &
+stream_pid=$!
+
 # audio recording command
-#sox -q -c 1 -t coreaudio "${audioDevice}" -t wav "${audioFifo}" remix - highpass 100 compand 0.05,0.2 6:-54,-90,-36,-36,-24,-24,0,-12 0 -90 0.1 &
-sox -q -t coreaudio "${audioDevice}" -t wav "${audioFifo}" channels 1 remix - highpass 100 compand 0.05,0.2 6:-54,-90,-36,-36,-24,-24,0,-12 0 -90 0.1 2>${audioLog} &
+#sox -q -c 1 -t "${audioDriver}" "${audioDevice}" -t wav "${audioFifo}" remix - highpass 100 compand 0.05,0.2 6:-54,-90,-36,-36,-24,-24,0,-12 0 -90 0.1 &
+sox -q -t "${audioDriver}" "${audioDevice}" -t wav "${audioFifo}" channels 1 remix - highpass 100 compand 0.05,0.2 6:-54,-90,-36,-36,-24,-24,0,-12 0 -90 0.1 2>${audioLog} &
 sox_pid=$!
 
 # audio conversion command 
 #ffmpeg -threads 0 -i "${audioFifo}" -acodec mp3 -b:a 64k -y "${ffmpegAudioFifo}" & 
-ffmpeg -i "${audioFifo}" -acodec mp3 -b:a 64k -y "${ffmpegAudioFifo}" & 
+ffmpeg -i "${audioFifo}" -acodec mp3 -b:a 64k -y "${ffmpegAudioFifo}" 2>${ffmpegAudioLog} & 
 ffmpeg_audio_pid=$!
 
 # video recording command
-ffmpeg -f mpegts -i "${videoStream}" -itsoffset ${itsoffset} -f mp3 -i "${ffmpegAudioFifo}" -y -f mp4 -frag_duration 3600 "${ffmpegVideoFifo}" &
+ffmpeg -f mpegts -i "udp://localhost:${streamPort}" -itsoffset ${itsoffset} -f mp3 -i "${ffmpegAudioFifo}" -y -f mp4 -frag_duration 3600 "${ffmpegVideoFifo}" 2>${ffmpegVideoLog} &
 ffmpeg_video_pid=$!
 
 # audio piping command
@@ -134,11 +157,11 @@ tee ${videoLocalFifo} ${videoRemoteFifo} <${ffmpegVideoFifo} &
 video_tee_pid=$!
 
 # audio ssh command
-ssh ${user}@${host} bash -c 'cat > "${remoteAudioFile}"' <${audioRemoteFifo} &
+ssh ${webUser}@${webHost} bash -c 'cat > "${remoteAudioFile}"' <${audioRemoteFifo} &
 audio_ssh_pid=$!
 
 # video ssh command
-ssh ${user}@${host} bash -c 'cat > "${remoteVideoFile}"' <${videoRemoteFifo} &
+ssh ${webUser}@${webHost} bash -c 'cat > "${remoteVideoFile}"' <${videoRemoteFifo} &
 video_ssh_pid=$!
 
 # audio local command
@@ -150,7 +173,7 @@ cat <${videoLocalFifo} >${localVideoFile} &
 video_local_pid=$!
 
 # wait for kill signal to stop recording
-wait ${sox_pid} ${ffmpeg_audio_pid} ${ffmpeg_video_pid} ${audio_tee_pid} ${video_tee_pid}\
+wait ${stream_pid} ${sox_pid} ${ffmpeg_audio_pid} ${ffmpeg_video_pid} ${audio_tee_pid} ${video_tee_pid}\
 ${audio_ssh_pid} ${video_ssh_pid} ${audio_local_pid} ${video_local_pid}
 
 # remove the named pipes
