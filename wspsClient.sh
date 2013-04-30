@@ -8,7 +8,7 @@
 # it just won't create a video file
 
 streamPort=1234
-streamHost=192.168.50.164
+streamHost=192.168.56.1
 streamUser=toddjobe
 audioDevice=default
 #localFolderBase="/AudioFiles"
@@ -16,7 +16,7 @@ localFolderBase="${HOME}/Documents/AudioFiles"
 remoteFolder="${HOME}/Documents/AudioFiles/remote"
 itsoffset=0
 #webUser=terry
-webUser=toddjobe
+webUser=tjobe
 #webHost=peopleforjesus.org
 webHost=localhost
 
@@ -101,6 +101,7 @@ function cleanup() {
   [[ ! -z "$ffmpeg_video_pid" ]] && kill -9 "${ffmpeg_video_pid}"
   [[ ! -z "$ffmpeg_audio_pid" ]] && kill -9 "${ffmpeg_audio_pid}"
   [[ ! -z "$sox_pid" ]] && kill -9 "${sox_pid}"
+  ssh ${streamUser}@${streamHost} "cmd /c taskkill /im \"ffmpeg.exe\" /f" 2>&1 >>${streamLog}
   [[ ! -z "$stream_pid" ]] && kill -9 "${stream_pid}"
 }
 
@@ -136,7 +137,7 @@ stream_pid=$!
 
 # audio recording command
 #sox -q -c 1 -t "${audioDriver}" "${audioDevice}" -t wav "${audioFifo}" remix - highpass 100 compand 0.05,0.2 6:-54,-90,-36,-36,-24,-24,0,-12 0 -90 0.1 &
-sox -q -t "${audioDriver}" "${audioDevice}" -t wav "${audioFifo}" channels 1 remix - highpass 100 compand 0.05,0.2 6:-54,-90,-36,-36,-24,-24,0,-12 0 -90 0.1 2>${audioLog} &
+sox -t "${audioDriver}" "${audioDevice}" -t wav "${audioFifo}" channels 1 remix - highpass 100 compand 0.05,0.2 6:-54,-90,-36,-36,-24,-24,0,-12 0 -90 0.1 2>${audioLog} &
 sox_pid=$!
 
 # audio conversion command 
