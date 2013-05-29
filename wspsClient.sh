@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 # Simple bash client for recording sermons
 # Author: Todd Jobe
 # Todo: It's better to simply encode the mp4 locally, then let the
@@ -9,8 +9,8 @@
 # it just won't create a video file
 
 streamPort=1234
-streamHost=192.168.56.1
-streamUser=toddjobe
+streamHost=169.254.193.113
+streamUser=tjobe
 audioDevice=default
 #localFolderBase="/AudioFiles"
 localFolderBase="${HOME}/Documents/AudioFiles"
@@ -20,7 +20,7 @@ itsoffset=0
 webUser=tjobe
 #webHost=peopleforjesus.org
 webHost=localhost
-ffmpegExe = ""
+ffmpegExe=':C:\Program Files\ffmpeg\bin\ffmpeg.exe'
 
 # Parse command line options
 while getopts "y" opt; do
@@ -37,10 +37,10 @@ done
 dt=`date +%Y-%m-%d`
 
 # Get the local ip address
-os=`uname`
-localIP=""
+# The Linux version assume that you're on the same subnet as the stream server
+os=`uname` localIP=""
 case $os in
-  Linux) localIP=`ifconfig | grep 'inet addr:' | grep -v '127.0.0.1' | grep '192' | cut -d: -f2 | awk '{print $1}'`;;
+  Linux) localIP=`ifconfig | grep 'inet addr:' | grep ${streamHost:0:7}| cut -d: -f2 | awk '{print $1}'`;;
   Darwin|FreeBSD|OpenBSD) localIP=`ifconfig | grep -E 'inet.[0-9]' | grep -v '127.0.0.1' | awk '{ print $2}'` ;;
 esac
 
@@ -55,27 +55,27 @@ esac
 case `date +%u` in
 7)
   case `date +%H` in
-  09) 
-    suffix=acs 
+  09)
+    suffix=acs
     localFolder="${localFolderBase}/Adult Class Sunday"
     ;;
-  10) 
+  10)
     suffix=ser
     localFolder="${localFoderBase}/Sunday Morning Sermon"
     ;;
-  *) 
+  *)
     suffix=oth
     localFolder="${localFolderBase}"
     ;;
   esac
 ;;
-3) 
-  suffix=wed 
+3)
+  suffix=wed
   localFolder="${localFolderBase}/Wednesday Night Class"
 ;;
 *) 
   suffix=oth
-  localFolder="${localFolderBase}" 
+  localFolder="${localFolderBase}"
 ;;
 esac
 
@@ -88,7 +88,7 @@ remoteVideoFile="${remoteFolder}/${videoFile}"
 remoteAudioFile="${remoteFolder}/${audioFile}"
 
 # Check for existence of files and ask if you want to overwrite
-if [[ ( ! ${forceOverwrite} ) && ( -e ${localVideoFile} || -e ${localAudioFile} || -z `ssh ${webUser}@${webHost} "ls ${remoteVideoFile} ${remoteAudioFile} 2>/dev/null"` ) ]]; then
+if [[ ( ! -z ${forceOverwrite} ) && ( -e ${localVideoFile} || -e ${localAudioFile} || -z `ssh ${webUser}@${webHost} "ls ${remoteVideoFile} ${remoteAudioFile} 2>/dev/null"` ) ]]; then
   read -p 'One or more of the files already exist, do you want to overwrite?(y/N):' a
   if [[ $a == [Nn] || $a == "" ]]; then
     echo Exiting.
@@ -103,7 +103,7 @@ function cleanup() {
   [[ ! -z "$ffmpeg_video_pid" ]] && kill -9 "${ffmpeg_video_pid}"
   [[ ! -z "$lame_audio_pid" ]] && kill -9 "${lame_audio_pid}"
   [[ ! -z "$sox_pid" ]] && kill -9 "${sox_pid}"
-  ssh ${streamUser}@${streamHost} "cmd /c taskkill /im \"ffmpeg.exe\" /f" 2>&1 >>${streamLog}
+  ssh ${streamUser}@${streamHost} "cmd /c taskkill /im \"${ffmpegExe}\" /f" 2>&1 >>${streamLog}
   [[ ! -z "$stream_pid" ]] && kill -9 "${stream_pid}"
 }
 
@@ -139,42 +139,42 @@ stream_pid=$!
 
 # audio recording command
 #sox -q -c 1 -t "${audioDriver}" "${audioDevice}" -t wav "${soxFifo}" remix - highpass 100 compand 0.05,0.2 6:-54,-90,-36,-36,-24,-24,0,-12 0 -90 0.1 &
-sox -t "${audioDriver}" "${audioDevice}" -t wav "${soxFifo}" compand 0.2,0.20 5:-60,-40,-10 -5 -90 0.1 2>${soxLog} &
+sox -t "${audioDriver}" "${audioDevice}" -t wav "${soxFifo}" compand 0.2,0.20 5:-60,-40,-10 -5 -90 0.1 2>"${soxLog}" &
 sox_pid=$!
 
 # audio conversion command 
 #ffmpeg -threads 0 -i "${soxFifo}" -acodec mp3 -b:a 64k -y "${lameFifo}" & 
-#ffmpeg -i "${soxFifo}" -acodec mp3 -b:a 64k -y "${lameFifo}" 2>${ffmpegAudioLog} & 
-lame -m s -a -q 7 -V 6 "${soxFifo}" "${lameFifo}" 2>${lameLog} & 
+#ffmpeg -i "${soxFifo}" -acodec mp3 -b:a 64k -y "${lameFifo}" 2>"${ffmpegAudioLog}" & 
+lame -m s -a -q 7 -V 6 "${soxFifo}" "${lameFifo}" 2>"${lameLog}" & 
 
 lame_audio_pid=$!
 
 # video recording command
-ffmpeg -f mpegts -i "udp://localhost:${streamPort}" -itsoffset ${itsoffset} -f mp3 -i "${lameFifo}" -y -f mp4 -frag_duration 3600 "${ffmpegVideoFifo}" 2>${ffmpegVideoLog} &
+ffmpeg -f mpegts -i "udp://localhost:${streamPort}" -g 52 -itsoffset ${itsoffset} -f mp3 -i "${lameFifo}" -y -f mp4 -c:v libx264 -movflags frag_keyframe+empty_moov "${ffmpegVideoFifo}" 2>${ffmpegVideoLog} &
 ffmpeg_video_pid=$!
 
 # audio piping command
-tee ${audioLocalFifo} >${audioRemoteFifo} <${lameFifo} &
+tee "${audioLocalFifo}" >"${audioRemoteFifo}" <${lameFifo} &
 audio_tee_pid=$!
 
 # video piping command 
-tee ${videoLocalFifo} >${videoRemoteFifo} <${ffmpegVideoFifo} &
+tee "${videoLocalFifo}" >"${videoRemoteFifo}" <"${ffmpegVideoFifo}" &
 video_tee_pid=$!
 
 # audio ssh command
-ssh ${webUser}@${webHost} "bash -c 'cat > \"${remoteAudioFile}\"'" <${audioRemoteFifo} &
+ssh ${webUser}@${webHost} "bash -c 'cat > \"${remoteAudioFile}\"'" <"${audioRemoteFifo}" &
 audio_ssh_pid=$!
 
 # video ssh command
-ssh ${webUser}@${webHost} "bash -c 'cat > \"${remoteVideoFile}\"'" <${videoRemoteFifo} &
+ssh ${webUser}@${webHost} "bash -c 'cat > \"${remoteVideoFile}\"'" <"${videoRemoteFifo}" &
 video_ssh_pid=$!
 
 # audio local command
-cat <${audioLocalFifo} >${localAudioFile} &
+cat <"${audioLocalFifo}" >"${localAudioFile}" &
 audio_local_pid=$!
 
 # video local command
-cat <${videoLocalFifo} >${localVideoFile} &
+cat <"${videoLocalFifo}" >"${localVideoFile}" &
 video_local_pid=$!
 
 # wait for kill signal to stop recording
