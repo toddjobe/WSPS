@@ -1,0 +1,1 @@
+ssh toddjobe@192.168.56.1 'cmd /c "C:\Program Files\fpeg\bin\ffmpeg.exe" -y -f dshow -t 600 -i video=UScreenCapture -vcodec libx264 -vprofile high -preset slow -b:v 50k -maxrate 500k -bufsize 0k -vf scale=426:320 -pix_fmt yuv420p -metadata comment=trial -f mpegts udp://10.0.2.15:1234'

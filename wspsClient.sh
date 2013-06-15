@@ -20,7 +20,9 @@ itsoffset=0
 webUser=tjobe
 #webHost=peopleforjesus.org
 webHost=localhost
-ffmpegExe=':C:\Program Files\ffmpeg\bin\ffmpeg.exe'
+ffmpegExeLocal=~/win/bin/ffmpeg
+ffmpegExeRemote='C:\Program Files\ffmpeg\bin\ffmpeg.exe'
+basenameFfmpegExeRemote=basename "${ffmpegExeRemote//\\/\/}"
 
 # Parse command line options
 while getopts "y" opt; do
@@ -103,7 +105,7 @@ function cleanup() {
   [[ ! -z "$ffmpeg_video_pid" ]] && kill -9 "${ffmpeg_video_pid}"
   [[ ! -z "$lame_audio_pid" ]] && kill -9 "${lame_audio_pid}"
   [[ ! -z "$sox_pid" ]] && kill -9 "${sox_pid}"
-  ssh ${streamUser}@${streamHost} "cmd /c taskkill /im \"${ffmpegExe}\" /f" 2>&1 >>${streamLog}
+  ssh ${streamUser}@${streamHost} "cmd /c taskkill /im \"${basenameFfmpegExeRemote}\" /f" 2>&1 >>${streamLog}
   [[ ! -z "$stream_pid" ]] && kill -9 "${stream_pid}"
 }
 
@@ -111,14 +113,16 @@ trap "cleanup" EXIT INT
 
 # plumbing though named pipes 
 soxFifo=/tmp/sox.wav
-lameFifo=/tmp/ffmpeg.mp3
+lameFifo=/tmp/lame.mp3
 ffmpegVideoFifo=/tmp/ffmpeg.mp4
 audioLocalFifo=/tmp/local.mp3
 videoLocalFifo=/tmp/local.mp4
+audioToVideoFifo=/tmp/audioToVideo.mp3
+audioToFileFifo=/tmp/audioToFile.mp3
 audioRemoteFifo=/tmp/remote.mp3
 videoRemoteFifo=/tmp/remote.mp4
 
-for fifo in "${soxFifo}" "${lameFifo}" "${ffmpegVideoFifo}" "${audioLocalFifo}" "${videoLocalFifo}" "${audioRemoteFifo}" "${videoRemoteFifo}" ; do
+for fifo in "${soxFifo}" "${lameFifo}" "${ffmpegVideoFifo}" "${audioToVideoFifo}" "${audioToFileFifo}" "${audioLocalFifo}" "${videoLocalFifo}" "${audioRemoteFifo}" "${videoRemoteFifo}" ; do
   rm -f "$fifo"
   mkfifo "$fifo"
 done
@@ -145,16 +149,19 @@ sox_pid=$!
 # audio conversion command 
 #ffmpeg -threads 0 -i "${soxFifo}" -acodec mp3 -b:a 64k -y "${lameFifo}" & 
 #ffmpeg -i "${soxFifo}" -acodec mp3 -b:a 64k -y "${lameFifo}" 2>"${ffmpegAudioLog}" & 
-lame -m s -a -q 7 -V 6 "${soxFifo}" "${lameFifo}" 2>"${lameLog}" & 
-
+lame -m s -a -q 7 -V 6 "${soxFifo}" "${lameFifo}" 2>"${lameLog}" &
 lame_audio_pid=$!
 
+# audio to video piping command
+tee "${audioToVideoFifo}" >"${audioToFileFifo}" <"${lameFifo}" 2>"${teeAudioToVideoLog}"&
+audioToVideo_tee_pid=$!
+
 # video recording command
-ffmpeg -f mpegts -i "udp://localhost:${streamPort}" -g 52 -itsoffset ${itsoffset} -f mp3 -i "${lameFifo}" -y -f mp4 -c:v libx264 -movflags frag_keyframe+empty_moov "${ffmpegVideoFifo}" 2>${ffmpegVideoLog} &
+"${ffmpegExeLocal}" -loglevel verbose -f mpegts -i "udp://localhost:${streamPort}" -itsoffset ${itsoffset} -f mp3 -i "${audioToVideoFifo}" -y -c:v libx264 -f mp4 -movflags frag_keyframe+empty_moov "${ffmpegVideoFifo}" 2>${ffmpegVideoLog} &
 ffmpeg_video_pid=$!
 
 # audio piping command
-tee "${audioLocalFifo}" >"${audioRemoteFifo}" <${lameFifo} &
+tee "${localAudioFile}" >"${audioRemoteFifo}" <"${audioToFileFifo}" &
 audio_tee_pid=$!
 
 # video piping command 
@@ -170,20 +177,22 @@ ssh ${webUser}@${webHost} "bash -c 'cat > \"${remoteVideoFile}\"'" <"${videoRemo
 video_ssh_pid=$!
 
 # audio local command
-cat <"${audioLocalFifo}" >"${localAudioFile}" &
-audio_local_pid=$!
+#cat <"${audioLocalFifo}" >"${localAudioFile}" &
+#audio_local_pid=$!
 
 # video local command
 cat <"${videoLocalFifo}" >"${localVideoFile}" &
 video_local_pid=$!
 
 # wait for kill signal to stop recording
-wait ${stream_pid} ${sox_pid} ${lame_audio_pid} ${ffmpeg_video_pid} ${audio_tee_pid} ${video_tee_pid}\
-${audio_ssh_pid} ${video_ssh_pid} ${audio_local_pid} ${video_local_pid}
+#wait ${stream_pid} ${sox_pid} ${lame_audio_pid} ${ffmpeg_video_pid} ${audioToVideo_tee_pid} ${audio_tee_pid} ${video_tee_pid}\
+#${audio_ssh_pid} ${video_ssh_pid} ${audio_local_pid} ${video_local_pid}
+wait ${stream_pid} ${sox_pid} ${lame_audio_pid} ${ffmpeg_video_pid} ${audioToVideo_tee_pid} ${audio_tee_pid} ${video_tee_pid}\
+${audio_ssh_pid} ${video_ssh_pid} ${video_local_pid}
 
 # remove the named pipes
-for fifo in "${soxFifo}" "${lameFifo}" "${ffmpegVideoFifo}" "${audioLocalFifo}" "${videoLocalFifo}" "${audioRemoteFifo}" "${videoRemoteFifo}" ; do
-  rm -f "$fifo"
+for ff in "${soxFifo}" "${lameFifo}" "${ffmpegVideoFifo}" "${audioToVideoFifo}" "${audioToFileFifo}" "${audioLocalFifo}" "${videoLocalFifo}" "${audioRemoteFifo}" "${videoRemoteFifo}" ; do
+  rm -f "${ff}"
 done
 
 exit
