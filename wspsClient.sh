@@ -22,7 +22,7 @@ webUser=tjobe
 webHost=localhost
 ffmpegExeLocal=~/win/bin/ffmpeg
 ffmpegExeRemote='C:\Program Files\ffmpeg\bin\ffmpeg.exe'
-basenameFfmpegExeRemote=basename "${ffmpegExeRemote//\\/\/}"
+basenameFfmpegExeRemote=`basename "${ffmpegExeRemote//\\\\//}"`
 
 # Parse command line options
 while getopts "y" opt; do
@@ -111,7 +111,7 @@ function cleanup() {
 
 trap "cleanup" EXIT INT
 
-# plumbing though named pipes 
+# plumbing though named pipes
 soxFifo=/tmp/sox.wav
 lameFifo=/tmp/lame.mp3
 ffmpegVideoFifo=/tmp/ffmpeg.mp4
@@ -142,18 +142,15 @@ ssh ${streamUser}@${streamHost} "cmd /c \"C:\\Program Files\\ffmpeg\\bin\\ffmpeg
 stream_pid=$!
 
 # audio recording command
-#sox -q -c 1 -t "${audioDriver}" "${audioDevice}" -t wav "${soxFifo}" remix - highpass 100 compand 0.05,0.2 6:-54,-90,-36,-36,-24,-24,0,-12 0 -90 0.1 &
 sox -t "${audioDriver}" "${audioDevice}" -t wav "${soxFifo}" compand 0.2,0.20 5:-60,-40,-10 -5 -90 0.1 2>"${soxLog}" &
 sox_pid=$!
 
-# audio conversion command 
-#ffmpeg -threads 0 -i "${soxFifo}" -acodec mp3 -b:a 64k -y "${lameFifo}" & 
-#ffmpeg -i "${soxFifo}" -acodec mp3 -b:a 64k -y "${lameFifo}" 2>"${ffmpegAudioLog}" & 
+# audio conversion command
 lame -m s -a -q 7 -V 6 "${soxFifo}" "${lameFifo}" 2>"${lameLog}" &
 lame_audio_pid=$!
 
 # audio to video piping command
-tee "${audioToVideoFifo}" >"${audioToFileFifo}" <"${lameFifo}" 2>"${teeAudioToVideoLog}"&
+tee "${audioToFileFifo}" >"${audioToVideoFifo}" <"${lameFifo}" &
 audioToVideo_tee_pid=$!
 
 # video recording command
@@ -164,7 +161,7 @@ ffmpeg_video_pid=$!
 tee "${localAudioFile}" >"${audioRemoteFifo}" <"${audioToFileFifo}" &
 audio_tee_pid=$!
 
-# video piping command 
+# video piping command
 tee "${videoLocalFifo}" >"${videoRemoteFifo}" <"${ffmpegVideoFifo}" &
 video_tee_pid=$!
 
@@ -177,18 +174,16 @@ ssh ${webUser}@${webHost} "bash -c 'cat > \"${remoteVideoFile}\"'" <"${videoRemo
 video_ssh_pid=$!
 
 # audio local command
-#cat <"${audioLocalFifo}" >"${localAudioFile}" &
-#audio_local_pid=$!
+cat <"${audioLocalFifo}" >"${localAudioFile}" &
+audio_local_pid=$!
 
 # video local command
 cat <"${videoLocalFifo}" >"${localVideoFile}" &
 video_local_pid=$!
 
 # wait for kill signal to stop recording
-#wait ${stream_pid} ${sox_pid} ${lame_audio_pid} ${ffmpeg_video_pid} ${audioToVideo_tee_pid} ${audio_tee_pid} ${video_tee_pid}\
-#${audio_ssh_pid} ${video_ssh_pid} ${audio_local_pid} ${video_local_pid}
 wait ${stream_pid} ${sox_pid} ${lame_audio_pid} ${ffmpeg_video_pid} ${audioToVideo_tee_pid} ${audio_tee_pid} ${video_tee_pid}\
-${audio_ssh_pid} ${video_ssh_pid} ${video_local_pid}
+${audio_ssh_pid} ${video_ssh_pid} ${audio_local_pid} ${video_local_pid}
 
 # remove the named pipes
 for ff in "${soxFifo}" "${lameFifo}" "${ffmpegVideoFifo}" "${audioToVideoFifo}" "${audioToFileFifo}" "${audioLocalFifo}" "${videoLocalFifo}" "${audioRemoteFifo}" "${videoRemoteFifo}" ; do
