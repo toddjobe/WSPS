@@ -148,7 +148,8 @@ videoRemoteLog=/tmp/videoRemote.log
 # video streaming command
 # TODO: This path to ffmpeg is hard coded here, but set in a variable elsewhere
 if (( $videoAndAudio)); then
-  ssh ${streamUser}@${streamHost} "cmd /c \"C:\\Program Files\\ffmpeg\\bin\\ffmpeg.exe\" -y -f dshow -t 3600 -i video=UScreenCapture -vcodec libx264 -vprofile high -preset slow -b:v 50k -maxrate 500k -bufsize 0k -vf scale=426:320 -pix_fmt yuv420p -metadata comment=trial -f mpegts udp://${localIP}:${streamPort}" 2>&1 >${streamLog} &
+  ssh ${streamUser}@${streamHost} "cmd /c \"C:\\Program Files\\ffmpeg\\bin\\ffmpeg.exe\" -y -f dshow -t 3600 -i video=UScreenCapture -vcodec libx264 -tune zerolatency -vf scale=426:320 -pix_fmt yuv420p -f mpegts udp://${localIP}:${streamPort}" 2>&1 >${streamLog} &
+  #ssh ${streamUser}@${streamHost} "cmd /c \"C:\\Program Files\\ffmpeg\\bin\\ffmpeg.exe\" -y -f dshow -t 3600 -i video=UScreenCapture -vcodec libx264 -vprofile high -preset slow -b:v 50k -maxrate 500k -bufsize 0k -vf scale=426:320 -pix_fmt yuv420p -metadata comment=trial -f mpegts udp://${localIP}:${streamPort}" 2>&1 >${streamLog} &
   stream_pid=$!
 fi
 
